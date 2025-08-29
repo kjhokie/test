@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>World Bank – Country KPIs</title>
+<style>
+  :root { --card-b: #eeeeee; --muted:#666; }
+  html, body { height: 100%; }
+  body { margin:0; padding:12px; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background:#fff; }
+  .wrap { display:grid; gap:10px; align-content:start; }
+  .kpi { border:1px solid var(--card-b); border-radius:10px; padding:12px; background:#fff; }
+  .kpi h4 { margin:0 0 8px 0; font-size:14px; font-weight:600; }
+  .val { font-size:22px; line-height:1.15; }
+  .muted { color:var(--muted); font-size:12px; }
+  .err { color:#b00020; font-size:13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kpi">
+    <h4 id="title">Country</h4>
+    <div class="muted" id="code"></div>
+  </div>
+  <div class="kpi">
+    <h4>Population</h4>
+    <div class="val" id="pop">—</div>
+    <div class="muted" id="popYear"></div>
+  </div>
+  <div class="kpi">
+    <h4>GDP (current US$)</h4>
+    <div class="val" id="gdp">—</div>
+    <div class="muted" id="gdpYear"></div>
+  </div>
+  <div class="muted" id="attribution">Source: World Bank Open Data</div>
+  <div class="err" id="error"></div>
+</div>
+
+<script>
+(async () => {
+  const qs = new URLSearchParams(location.search);
+  const isoParam = (qs.get('iso2') || qs.get('iso') || 'AL').toUpperCase(); // default AL (Albania)
+  const customTitle = qs.get('title');
+  const fmt = n => (typeof n === 'number')
+    ? n.toLocaleString(undefined, { maximumFractionDigits: 0 })
+    : '—';
+  const setErr = msg => document.getElementById('error').textContent = msg || '';
+
+  try {
+    // Country metadata
+    const metaRes = await fetch(`https://api.worldbank.org/v2/country/${isoParam}?format=json`);
+    if (!metaRes.ok) throw new Error(`WB country HTTP ${metaRes.status}`);
+    const metaJson = await metaRes.json();
+    const country = metaJson?.[1]?.[0];
+    const countryName = customTitle || country?.name || isoParam;
+    const region = country?.region?.value || '';
+    document.getElementById('title').textContent = countryName;
+    document.getElementById('code').textContent = `${isoParam}${region ? ' · ' + region : ''}`;
+
+    // Helper: latest non-null indicator
+    async function latest(iso, indicator) {
+      const url = `https://api.worldbank.org/v2/country/${iso}/indicator/${indicator}?format=json&per_page=70`;
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(`${indicator} HTTP ${r.status}`);
+      const j = await r.json();
+      const series = j?.[1] || [];
+      const pt = series.find(d => d && d.value !== null);
+      return pt ? { value: pt.value, year: pt.date } : null;
+    }
+
+    const [pop, gdp] = await Promise.all([
+      latest(isoParam, 'SP.POP.TOTL'),
+      latest(isoParam, 'NY.GDP.MKTP.CD')
+    ]);
+
+    if (pop) {
+      document.getElementById('pop').textContent = fmt(pop.value);
+      document.getElementById('popYear').textContent = pop.year ? `Year ${pop.year}` : '';
+    }
+    if (gdp) {
+      document.getElementById('gdp').textContent = fmt(gdp.value);
+      document.getElementById('gdpYear').textContent = gdp.year ? `Year ${gdp.year}` : '';
+    }
+  } catch (e) {
+    setErr('Error loading World Bank data: ' + (e && e.message ? e.message : e));
+  }
+})();
+</script>
+</body>
+</html>
